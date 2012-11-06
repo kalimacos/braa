@@ -1,0 +1,182 @@
+
+1. OVERVIEW
+
+  Braa is a mass snmp scanner. The intended usage of such a tool is of course 
+making SNMP queries - but unlike snmpget from net-snmp, it is able to query
+dozens or hundreds of hosts simultaneously, and in a single process. Thus, it
+consumes very few system resources and does the scanning VERY fast.
+  
+  Braa implements its OWN snmp stack, so it does NOT need any SNMP libraries
+like net-snmp. The implementation is very dirty, supports only several data
+types, and in any case cannot be stated 'standard-conforming'! It was designed
+to be fast, and it is fast. For this reason (well, and also because of my
+laziness ;), there is no ASN.1 parser in braa - you HAVE to know the numerical
+values of OID's (for instance .1.3.6.1.2.1.1.5.0 instead of system.sysName.0).
+
+2. REQUIREMENTS
+  
+  * an *IX system implementing BSD sockets and some POSIX syscalls
+  * large ARP table - if you plan to query thousands of hosts, make
+    sure your system is capable of managing thousands of ARP entries,
+    for instance tune the gc_thresh values in Linux...
+
+  * it is also good to have a complete SNMP package installed somewhere,
+    because braa accepts only numerical OID's, so you may need to make
+    use of snmptranslate.
+
+  Braa is not at all portable - it was tested only on several setups:
+  * Linux (shaerrawedd 2.4.19-xfs #7 Fri Oct 4 18:18:38 CEST 2002 i686 unknown)
+  * FreeBSD (venom 4.6.2-RELEASE-p10 FreeBSD 4.6.2-RELEASE-p10 #0: Tue Mar 25
+           12:59:45 CET 2003     root@venom:/usr/src/sys/compile/VENOM-3  i386)
+  * OpenBSD (pantera 3.3 PANTERA#0 i386)
+  * SunOS (atlantis 5.9 Generic_112233-04 sun4u sparc SUNW,Ultra-5_10)
+
+
+3. INSTALLATION
+
+  * edit Makefile and uncomment the right setting for your OS
+  * do a 'make'
+  * copy the 'braa' binary into a desired place.
+   
+4. USAGE
+
+  Braa needs a list of queries, specified in the following syntax:
+  [community@]host[:port]:oid[/id]
+  Where: host          is the IP address of host braa should connect to
+         oid           is the oid to query about
+		 port          UDP port to use (default: 161)
+         community     is the SNMP community to identify with (default:
+                       public)
+		 id            optional query identifier (will get printed before the
+		               result line corresponding to the query; does not
+					   affect the scanning process)
+  Examples:
+     192.168.12.30:.1.3.6.1.2.1.1.5.0
+     private@192.168.31.1:.1.3.6.1.2.1.1.6.0
+  You might also specify whole ranges of hosts, for instance:
+     10.253.100.1-10.253.105.254:.1.3.6.1.2.1.2.2.1.10.1
+  is the same as:
+     10.253.100.1:.1.3.6.1.2.1.2.2.1.10.1
+     10.253.100.2:.1.3.6.1.2.1.2.2.1.10.1
+     10.253.100.3:.1.3.6.1.2.1.2.2.1.10.1
+     ...
+     ...
+	 
+    If you need to ask a host (or a host range) for more than one SNMP value,
+  you just have to make several separate queries, eg.
+     10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.1.2.1.1.4
+     10.253.101.1-10.253.106.1:.1.3.6.1.2.1.2.2.1.10.1
+     10.253.101.1-10.253.106.1:.1.3.6.1.2.1.2.2.1.16.1
+     10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.1.1.1.6.3
+     10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.2.2.1.3.2
+     10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.1.4.1.5.3
+  Of course, braa takes advantage of the possibility to make serveral SNMP
+  queries using a single SNMP packet and will never send more than one
+  packet (of course except retries if there was no answer) to host
+  (btw, see LIMITATIONS).
+
+  So, as it was mentioned, the first stage is preparing a list of queries. The
+  list might be passed to braa in two ways. You may either write a text file,
+  containing the queries one-by-line or just pass a bunch of -q options. It's
+  also possible to mix those two ways, load several sets of queries from
+  several files, etc.
+  
+  OK, here comes the syntax itself:
+  braa [-a] [-s N] [-r R] [-t T] [-q query [-q query [-q query ...]]] [-f file
+       [-f file [-f file ...]]]
+       
+    REQUIRED OPTIONS:    
+    -q and -f are the options for specifying queries. -q ... specifies
+              queries literally, and -f ... specifies a file to load query
+              list from.
+    OPTIONS AFFECTING THE PERFORMANCE:
+    -s N      specifies how many hosts to query simultaneously (default: 50).
+              see below.
+    -r R      specifies the number of retries per host (default 5, see below)
+    -t T      specifies timeout (in milliseconds, default: 3000, see below)
+    OPTIONS AFFECTING OUTPUT:
+    -a        alternative output format (see below)
+
+    Now how does braa work? 
+  
+    A queue of N hosts is being sent queries. Then braa waits up to 200 ms
+  for answers. If there were ones, the hosts that answered are removed 
+  from the queue, and next hosts come into their place. The number of
+  retries for each host that did not answer gets increased - when it
+  reaches R, the host is also removed from the queue, making room for
+  a new one. A host that was already removed from the queue may still
+  send an answer and it WILL BE accepted, so delayed packets are not
+  a problem here, just the lost ones. The whole process is repeated
+  until there are no new hosts to fill the queue (ie. everyone was or
+  is being queried). Then braa simply makes the queue shorter. When
+  its length reaches 0, braa closes any sockets, sorts the results,
+  presents the output and quits.
+    After T ms since start, braa shows the output and quits immediately,
+  independent of how many hosts were queried, and how many were left
+  untouched.
+  
+    As you can see, the algorithm is not perfect. As I said, it was intented
+  to be as fast as possible. The default values for -s and -r are quite
+  fair, but of course you may always tune it to make braa work even faster
+  (but less accurate...). If you are querying a very large amount of
+  hosts, remember to increase -t significally...
+  
+    The results are printed to stdout one-by-line:
+    192.168.1.2:.1.3.6.1.2.1.1.5.0:do-wan.elsat.net.pl
+    192.168.1.1:.1.3.6.1.2.1.1.4.0:"Mateusz Golicz MG452-RIPE <mtg@elsat.net.pl>"
+    192.168.1.1:.1.3.6.1.2.1.1.5.0:ergsun
+
+    Or if you specify the -a option: host-by-line with results separated by space,
+  each line in order the queries were specified:
+
+    10.253.105.245 358 410 -137 276783656 16315982 4
+    10.253.105.244 387 480 -105 6611527 391938 1
+    10.253.105.242 371 282 182 0 0 2
+    10.253.105.239 373 430 34 0 0 6
+    10.253.105.238 354 510 -163 262523537 12319047 4
+    
+	With the standard output format, an optional query identifier might be
+  printed before each query, which might be useful for batch processing the
+  output. For instance, querying for 192.168.1.2:.1.3.6.1.2.1.1.5.0/test
+  will output something close to:
+    test/192.168.1.2:.1.3.6.1.2.1.1.5.0:do-wan.elsat.net.pl
+    
+5. EXAMPLES
+
+    braa -f queries.lst \
+         -q 192.168.1.1:.1.3.6.1.2.1.1.5.0 \
+         -q 192.168.1.1:.1.3.6.1.2.1.1.4.0 \
+         -q 192.168.1.2:.1.3.6.1.2.1.1.4.0
+    
+    braa -s 50 -ar 3 -t 250000 -q 10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.1.2.1.1.4 \
+                               -q 10.253.101.1-10.253.106.1:.1.3.6.1.2.1.2.2.1.10.1 \
+                               -q 10.253.101.1-10.253.106.1:.1.3.6.1.2.1.2.2.1.16.1 \
+                               -q 10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.1.1.1.6.3 \
+                               -q 10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.2.2.1.3.2 \
+                               -q 10.253.101.1-10.253.106.1:.1.3.6.1.2.1.10.127.1.1.4.1.5.3
+
+6. BUGS AND LIMITATIONS
+
+  * the only supported datatypes are: integer (gauge, counter, timeticks, etc.),
+    string and OID. Of course you are free to modify braaasn.c/braaasn.h to
+    support more types...
+  * braa will never send more than 1500 bytes (or a single packet) to a host
+    in a single try. Thus the number of queries that might be sent to a single
+    host is limited. Additionally, if you reach the limit by specifying too many
+    queries, braa will terminate the whole scanning process... I can't tell
+    what the limit exactly is, it just depends on many factors (mainly, the
+    length of OIDs), anyway, 15 queries per hosts sounds dangerous, and better
+    try not to exceed this number.
+  * it is impossible to specify FQDN hostnames - you always have to give IP
+    addresses of hosts... well, I think it'll be corrected in future
+    versions, if there will be ones.
+
+7. AUTHORS, ACKNOWLEDGEMENTS
+
+  Mateusz 'mteg' Golicz <mtg@elsat.net.pl>
+
+8. LICENSE
+
+  The package is licensed on GNU General Public License. See COPYING file.
+
+Mateusz 'mteg' Golicz <mtg@elsat.net.pl>
