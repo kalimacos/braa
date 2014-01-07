@@ -1,0 +1,3 @@
+version=3
+
+http://s-tech.elsat.net.pl/braa/braa-(\d[\d.]*)\.(?:zip|tgz|tbz2|txz|tar\.gz|tar\.bz2|tar\.xz)

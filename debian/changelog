@@ -1,3 +1,9 @@
+braa (0.82-1kali3) kali; urgency=low
+
+  * Added watch file (Closes: 0000854)
+
+ -- Devon Kearns <dookie@kali.org>  Tue, 07 Jan 2014 14:02:39 -0700
+
 braa (0.82-1kali2) kali; urgency=low
 
   * Removed desktop files
